@@ -1,4 +1,1 @@
-0d20-Wiki
-=========
-
-The gollum git backend for the 0d20 wiki.
+Some scripts to generate tables and stuff for mediawiki for use with my Pathfinder wiki.
