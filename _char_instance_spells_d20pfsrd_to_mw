@@ -1,0 +1,168 @@
+#!/usr/bin/python
+
+import argparse 
+import yaml
+import requests
+import re
+from HTMLParser import HTMLParser
+
+arg_parser = argparse.ArgumentParser(description='Pull spell list from d20pfsrd and create an character instance')
+arg_parser.add_argument(
+    '--class',
+    nargs=1,
+    action='store',
+    dest='class_name',
+    help='Use this to determin class',
+    required=True
+)
+arg_parser.add_argument(
+    '--file',
+    nargs=1,
+    action='store',
+    dest='file_name',
+    help='Use this to parse existing html file'
+)
+args = arg_parser.parse_args()
+
+# store urls for getting spells
+spell_sites = {
+  'cleric' : 'http://www.d20pfsrd.com/magic/spell-lists-and-domains/spell-lists---cleric/'
+}
+
+#using HTMLParser we will create parsers to transform the spell tables into mediawiki table format
+# this works by reading the html in as a stream of tags/data. 
+# when it enters into a tag it sets that state ( in_tr for example ) 
+# depending on what state it is in it appends different mediawiki styled text to the self.data member
+# get_data returns self.data
+class TdParser(HTMLParser):
+    def reset(self):
+      HTMLParser.reset(self)
+      self.in_tr = False
+      self.in_td = False
+      self.in_a = False
+      self.data = []
+      self.current_tr = None
+      self.current_td = None
+
+     
+    def handle_starttag(self, tag, attrs):
+      if tag == 'tr':
+        self.in_tr = True
+        self.current_tr = []
+      elif tag == 'td':
+        self.in_td = True
+        self.current_td = None
+      elif tag == 'a':
+        self.in_a = True
+        if self.in_td:
+          atts = dict( attrs )
+          if "href" in atts:
+            self.current_td = '{0} [{1}'.format( '' if self.current_td is None else self.current_td, atts.get("href") )
+        #self.current_td = None
+     
+    def handle_data(self, data):
+      if self.in_a:
+        if self.in_td:
+          self.current_td = '{0} {1} ]'.format( '' if self.current_td is None else self.current_td, data )
+      elif self.in_td:
+        self.current_td = '{0} {1} '.format( '' if self.current_td is None else self.current_td, data ) 
+     
+    def handle_endtag(self, tag):
+      if tag == 'tr':
+        self.in_tr = False
+        self.data.append( self.current_tr )
+        self.current_tr = None
+      elif tag == 'td':
+        self.in_td = False
+        self.current_tr.append( self.current_td )
+        self.current_td = None
+      elif tag == 'a':
+        self.in_a = False
+        #self.current_td = None
+
+    def get_data(self):
+      return self.data
+
+
+# create a global configuration object
+script_config = {}
+class ScriptConf:
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+scriptConf = ScriptConf(**script_config)
+
+scriptConf.class_name = args.class_name[0]
+
+#provide the file option so we don't have to keep pulling from the website
+if args.file_name:
+  with open( args.file_name[0], "r" ) as in_file:
+    in_text = in_file.readlines()
+else:
+  res = requests.get( spell_sites[ scriptConf.class_name ] )
+  in_text = res.text
+  with open( "/tmp/spells_{0}".format( scriptConf.class_name ), 'w' ) as out_file:
+    out_file.write( in_text.encode("utf-8") )
+
+# Read through the file and pull out the spell tables for each level
+# store them into a dictionary key'd by level
+level_data = {}
+current_level = None
+current_level_string = ''
+for line in in_text:
+  toc_m = re.search( r'name="TOC-(\d+)', line ) 
+  if toc_m:
+    if current_level:
+    #if we are currently processing a level then swtich to the next
+    #and store our content
+      level_data[ current_level ] = current_level_string
+      current_level_String = ''
+    current_level = toc_m.group(1)
+  if current_level:
+    current_level_string += line
+    if current_level == '9' and re.search( r'</table>', line ):
+      level_data[ current_level ] = current_level_string
+      break
+
+# go through each level and parse the data
+level_spell_data = {}
+for level in sorted( level_data.keys() ):
+  print level
+  level_spell_data[ level ] = []
+  level_text = level_data[ level ]
+  level_text = re.sub( r'\&\#8217\;', '\'', level_text )
+  tdp = TdParser() # user a real HTML parser ( sax not dom )
+  tdp.feed(level_text)
+  level_spell_data[ level ] = tdp.get_data()
+
+def sprint_table_starter( out_file ):
+  out_file.write( '{| class="wikitable"\n' )
+
+def sprint_table_ender( out_file ):
+  out_file.write( '|}\n' )
+
+def sprint_table_headers(  out_file, headers ):
+  for header in headers:
+    out_file.write( '! {0}\n'.format( header ) )
+
+def sprint_table_rows( out_file, data, level ):
+    for row in level_spell_data[ level ]:
+      if row:
+        out_file.write( "|-\n" )
+        out_file.write( "| 0\n" )
+        out_file.write( "| {0}\n".format( level ) )
+        out_file.write( "| {0}\n".format( format_links_and_spaces( row[0] ) ) )
+        out_file.write( "| {0}\n".format( format_links_and_spaces( row[2] ) ) )
+
+def format_links_and_spaces( string ):
+  return_string = re.sub( '\s+', ' ', string )
+  return_string = return_string.replace( '../../', 'http://d20pfsrd.com/' )
+  return_string = return_string.replace( '../', 'http://d20pfsrd.com/' )
+  return return_string
+
+
+for level in sorted( level_spell_data.keys() ):
+  with open( 'current_{0}_{1}_spells'.format( scriptConf.class_name, level ), 'w' ) as out_file:
+    sprint_table_starter( out_file )
+    sprint_table_headers( out_file, [ 'memorized', 'level', 'spell', 'description' ] )
+    sprint_table_rows( out_file, level_spell_data, level )
+    sprint_table_ender( out_file )
