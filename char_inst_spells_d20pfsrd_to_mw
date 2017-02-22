@@ -6,7 +6,7 @@ import requests
 import re
 from HTMLParser import HTMLParser
 
-arg_parser = argparse.ArgumentParser(description='Pull spell list from d20pfsrd and create an character instance')
+arg_parser = argparse.ArgumentParser(description='Pull spell list from d20pfsrd and create an character instance.')
 arg_parser.add_argument(
     '--class',
     nargs=1,
@@ -115,7 +115,7 @@ for line in in_text:
     #if we are currently processing a level then swtich to the next
     #and store our content
       level_data[ current_level ] = current_level_string
-      current_level_String = ''
+      current_level_string = ''
     current_level = toc_m.group(1)
   if current_level:
     current_level_string += line
@@ -134,6 +134,7 @@ for level in sorted( level_data.keys() ):
   tdp.feed(level_text)
   level_spell_data[ level ] = tdp.get_data()
 
+
 def sprint_table_starter( out_file ):
   out_file.write( '{| class="wikitable"\n' )
 
@@ -145,7 +146,7 @@ def sprint_table_headers(  out_file, headers ):
     out_file.write( '! {0}\n'.format( header ) )
 
 def sprint_table_rows( out_file, data, level ):
-    for row in level_spell_data[ level ]:
+    for row in data[ level ]:
       if row:
         out_file.write( "|-\n" )
         out_file.write( "| 0\n" )
